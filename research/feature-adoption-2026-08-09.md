@@ -190,33 +190,27 @@ worth a design pass on whether Soffio's model-role table calls into
 aria-llm-router as its resolution backend rather than duplicating
 provider config plumbing a third time.
 
-## Design note — prompt-cache-aware substrate loading (open question, not solved here)
+## Design note — prompt-cache vs. substrate swap: not actually a conflict
 
-thoor's requirement: substrate-aware spawn (switching an identity's
-underlying model) has to be designed together with prompt caching, not
-after. This is a genuinely separate problem from the model-*metadata*
-caching covered above — LLM prompt-content caching (Anthropic's
-explicit `cache_control` breakpoints, OpenAI's automatic prefix
-caching, etc.) works per-provider, often per-model, and a substrate
-swap almost certainly invalidates any existing cache regardless of how
-the prompt is structured, since the cache key is provider/model-scoped
-by design in every implementation seen so far.
+Originally flagged this as an open problem (substrate swap invalidates
+provider-scoped prompt cache, so substrate-aware spawn and prompt
+caching seemed to need reconciling). thoor's correction, 2026-08-10:
+**a substrate swap already IS a new session** — every run is its own
+session regardless. Prompt caching (Anthropic `cache_control`
+breakpoints, OpenAI automatic prefix caching, etc.) only ever matters
+*within* a session, turn-to-turn, and a session is already pinned to
+one substrate for its whole lifetime. There's no case where a live
+session's cache needs to survive a substrate change, because a
+substrate change doesn't happen mid-session — it happens as a new
+session starts. Nothing to reconcile.
 
-What's controllable: cache-miss rate *within* a single substrate,
-across turns. That argues for a stable prompt-layering order — most
-stable content first, most volatile last:
-
-1. Identity layer (who this agent is — rarely changes)
-2. Role/skill layer (what this agent can do — changes per role
-   assignment, not per turn)
-3. Task/context layer (current GardenHub `WorkTask`, conversation
-   state — changes every turn)
-
-This is a real requirement, not a solved design — needs its own
-research pass per provider (what actually qualifies as a stable
-prefix for Anthropic vs. OpenAI vs. whatever backs Kimi/DeepSeek/
-Gemini) before Soffio's prompt-assembly code gets written. Flagging as
-an open question, not asserting an answer here.
+What's still worth keeping simple (not a hard requirement, just good
+practice): a stable prompt-layering order within a session — identity
+layer, then role/skill layer, then task/context layer, most stable
+first — since that's ordinary cache-hit hygiene within any single
+substrate, same as it would be for a single-substrate harness. No
+per-provider research pass needed before this; it falls out of normal
+prompt assembly, not a special substrate-aware mechanism.
 
 ## Summary — what to actually adopt
 

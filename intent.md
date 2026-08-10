@@ -148,9 +148,10 @@ debugs, not a foundation Soffio is built on.
 2026-08-09/10: deep-dive research (file-cited, not README impressions)
 into `/plan`, `/goal`, `/loop`, model-role config, and provider/model
 caching across all three, plus how `~/work/aria-llm-router` fits in.
-Corrects an early wrong assumption (goal "purpose" steering model
-selection isn't real prior art anywhere) and opens the prompt-cache
-substrate-loading question as unsolved. Full writeup:
+Corrects two early wrong assumptions: goal "purpose" steering model
+selection isn't real prior art anywhere, and prompt-cache vs.
+substrate-swap isn't actually a conflict (a substrate swap is already
+a new session; caching only matters within one). Full writeup:
 [`research/feature-adoption-2026-08-09.md`](./research/feature-adoption-2026-08-09.md).
 Not exhaustive — more to mine in these repos beyond this pass.
 
