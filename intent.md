@@ -143,14 +143,25 @@ debugs, not a foundation Soffio is built on.
   layer? per-identity config?) — that's a design-phase question, not
   an intent-phase one.
 
+## Feature Adoption — catcode / oh-my-pi / claw-code
+
+2026-08-09/10: deep-dive research (file-cited, not README impressions)
+into `/plan`, `/goal`, `/loop`, model-role config, and provider/model
+caching across all three, plus how `~/work/aria-llm-router` fits in.
+Corrects an early wrong assumption (goal "purpose" steering model
+selection isn't real prior art anywhere) and opens the prompt-cache
+substrate-loading question as unsolved. Full writeup:
+[`research/feature-adoption-2026-08-09.md`](./research/feature-adoption-2026-08-09.md).
+Not exhaustive — more to mine in these repos beyond this pass.
+
 ## Open Questions
 
 - Repo location settled: `~/repo/soffio` (peer of the four reviewed
   harnesses, not `~/work/` where the loomkit/hammerhead-debug/pilotfish
   tool-building lives).
-- Fork strategy: hard fork with our own remote, or fork + tracked
-  upstream sync (like oh-my-pi does from pi-mono, which this session's
-  review flagged as a real ongoing maintenance tax)?
+- Fork strategy settled: forked via `gh repo fork` to
+  `rfcclub/soffio`, `origin` = fork, `upstream` = `earendil-works/pi`
+  — tracked sync, not a hard fork.
 - Exact shape of the "substrate-aware spawn" API — needs a design pass
   against `pi`'s existing provider abstraction
   (`packages/ai`) before committing to an approach.
