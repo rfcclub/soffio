@@ -41,7 +41,7 @@ each does well, ease-to-extend ratings, cited file paths) are kept in
 
 ## Outcome
 
-A fork of `pi` — Soffio — that adds three things `pi` doesn't have out
+A fork of `pi` — Soffio — that adds four things `pi` doesn't have out
 of the box:
 
 1. **Substrate-aware spawn.** Spawn N agents (up to all 16 in
@@ -69,6 +69,25 @@ of the box:
    inspired by catcode's one-protocol-many-runtimes design
    (`protocol/protocol.schema.json`), which was the cleanest boundary
    pattern of the four reviewed.
+
+4. **Passive cross-agent awareness (AgentRadio pattern).** thoor's
+   call, 2026-08-11: adopt this for real, not just cite it. Rialto
+   gives every spawned agent three primitives — `create_thread`,
+   `send_message` (non-blocking), `wait_for_mention` — where
+   `wait_for_mention` runs as a **background task**, not a blocking
+   foreground call. An agent working its own `WorkTask` keeps working;
+   a mention from GardenHub or a sibling agent surfaces at its next
+   step boundary instead of requiring a poll cycle or a phase-boundary
+   handoff. This is the one piece of prior art this session found with
+   *measured* evidence for the colony-beats-single-strong-model thesis
+   the other three pillars assume on intuition alone — see
+   [`research/ai-agent-digest-2026-08-10.md`](./research/ai-agent-digest-2026-08-10.md)
+   for the numbers (AgentRadio, arXiv 2607.28430: +10.5–11.3 points
+   from the background-vs-blocking change alone, isolated by ablation).
+   Not vendoring their code (research-scope, tied to their specific
+   5-phase protocol) — implementing the same three-primitive shape
+   natively in Rialto, wired to GardenHub's event spine instead of a
+   standalone message server.
 
 ## Prior Art Note — letta-code
 
