@@ -59,7 +59,17 @@ of the box:
    evidence-based, not a confirm-dialog: no "done" claim survives
    without the kind of proof Venice loop engineering already defines
    (CLI memory recall, mechanical verification, streak loops, blank-arm
-   holdout tests, human-gated hill-climbing).
+   holdout tests, human-gated hill-climbing). The execution sandbox
+   itself doesn't need to be hand-rolled: catcode's
+   `MicrosandboxExecutionBackend` (microVM, see
+   [`research/harness-comparison-2026-08-09.md`](./research/harness-comparison-2026-08-09.md))
+   and **Docker Sandboxes** (docker.com/products/docker-sandboxes,
+   see
+   [`research/ai-agent-digest-2026-08-10.md`](./research/ai-agent-digest-2026-08-10.md))
+   are both real, working microVM-isolation implementations of the
+   same idea — thoor's call, 2026-08-11: Soffio should support Docker
+   Sandboxes as a gate backend in the future. Deferred, not v1 — see
+   Open Questions.
 
 3. **GardenHub wiring.** Bulk-spawned agents need to speak to
    `src/garden/hub.ts` (`GardenHub`, `WorkTask`) and
@@ -161,6 +171,10 @@ debugs, not a foundation Soffio is built on.
 - Not deciding the exact substrate-swap mechanism yet (LoRA? routing
   layer? per-identity config?) — that's a design-phase question, not
   an intent-phase one.
+- Not shipping Docker Sandboxes integration in v1 — self-responsibility
+  gate v1 can start with catcode's simpler pattern or a plain
+  host-execution backend; Docker Sandboxes support is a named future
+  goal (thoor, 2026-08-11), not a launch requirement.
 
 ## Feature Adoption — catcode / oh-my-pi / claw-code
 
