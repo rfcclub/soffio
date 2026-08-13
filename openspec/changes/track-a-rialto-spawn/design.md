@@ -31,29 +31,38 @@ absorbs. Practically, this means the MVP slice should target **Coda**
 specifically, since `coda-runtime` is the only one that exists today —
 flagged as an open question below rather than assumed.
 
-**Where the chat/tool-execution loop actually runs — resolved via the
-subagent analogy, thoor 2026-08-13.** `coda-runtime`'s HTTP surface
-(`packages/coda-runtime/src/http.ts`) exposes exactly two operations —
-`POST /v1/join` and `POST /v1/continuity/remember` (`recall` returns
-409 "unimplemented") — and nothing resembling "execute this tool" or
-"run a turn." That narrow surface is itself the answer to "how do you
-manage server-side vs. client-side tool execution": **coda-runtime is
-a continuity/substrate authority only — it loads substrate, saves
-experience, is queried for information. It is not where the
-chat/reasoning loop or client-side tools (Grep, ls, Bash, edits — the
-"harness supplies tools" layer) run.**
+**Where the chat/tool-execution loop actually runs — corrected,
+thoor 2026-08-13: `AgentSession` is ANIMA's own, not Soffio's.**
+The previous version of this design said the loop runs "using
+`agent-runtime`'s existing `AgentSession`/`executeTool`" — wrong.
+`src/agents/session.ts`'s `AgentSession` is ANIMA's own execution loop,
+for ANIMA's own colony agents, running inside ANIMA's own process.
+Soffio has zero reason to import or reuse it — Soffio is a fork of
+`pi`, and `pi` already ships its own complete agent execution loop:
+`packages/agent/src/agent.ts` + `packages/agent/src/agent-loop.ts`
+(per this session's earlier harness-comparison research, ~18K + ~21K
+lines — the actual tool-calling loop that makes `pi` a coding agent in
+the first place). **Rialto uses `pi`'s own agent loop, unmodified, to
+run the chat/tool-execution turn for a spawned identity.** No porting,
+no cross-process compatibility question — it's already Soffio's own
+code, inherited whole from the fork.
 
-That loop runs **client-side, inside Rialto**, using `agent-runtime`'s
-existing `AgentSession`/`executeTool`/`buildToolDefinitions`
-(`src/agents/session.ts`, `src/tools/executor.ts`) after Rialto has
-joined and received the identity's substrate via `coda-runtime`.
-Rialto calls back to `coda-runtime` only for continuity writes
-(`remember`) or for any operation that genuinely needs centralized
-state (a "server tool" — e.g. cross-identity memory queries) — not for
-routine per-turn tool calls, which stay local exactly like a spawned
-subagent's own Read/Bash/Edit calls stay inside that subagent's own
-process and are never visible to (or routed through) whatever spawned
-it.
+`coda-runtime`'s HTTP surface (`packages/coda-runtime/src/http.ts`)
+exposes exactly two operations — `POST /v1/join` and `POST
+/v1/continuity/remember` (`recall` returns 409 "unimplemented") — and
+nothing resembling "execute this tool" or "run a turn." That narrow
+surface confirms the split: **coda-runtime is a continuity/substrate
+authority only — it loads substrate, saves experience. `pi`'s agent
+loop is where the chat/reasoning loop and client-side tools (Grep, ls,
+Bash, edits) run.** The two systems are bridged by Rialto, not merged:
+Rialto joins `coda-runtime` to obtain the identity's substrate (feeds
+it into `pi`'s agent loop as the system prompt / context), runs `pi`'s
+own loop locally for the actual turn, then calls back to
+`coda-runtime` only for continuity writes (`remember`) after the turn
+— never for routine per-turn tool calls, which stay entirely inside
+`pi`'s own loop, exactly like a spawned subagent's own Read/Bash/Edit
+calls stay inside that subagent's own process and are never routed
+through whatever spawned it.
 
 **The `leaseId` returned by `join()` is the same kind of handle this
 session's own subagent-spawn mechanism uses** (`agent_id`/`name` from
@@ -76,22 +85,22 @@ harness's subagent registry is invisible to the subagent itself.
 - **No new server-side component.** `coda-runtime` (and whichever
   `<name>-runtime` processes exist for other identities) already runs
   as its own process; Rialto does not stand up or own that process.
-- **Modification to `ProviderRequest`/model resolution**: none, as
-  before — `modelOverride` (Track A's second requirement) is entirely
-  inside the identity's own runtime/`agent-runtime` call path, not
-  something Rialto's join-client touches.
+- **Modification to `pi`'s own provider/model layer**: none —
+  `modelOverride` (Track A's second requirement) is entirely `pi`'s
+  own existing mechanism (`packages/ai`), not something Rialto's
+  join-client or `coda-runtime` touches at all.
 - **Rialto's local lease registry** (new, Soffio-side, in-process for
   the MVP slice) — maps identity name → `{leaseId, capabilityToken,
   lastActivity}` for every identity Rialto has joined. This is
   Rialto's own bookkeeping, invisible to `coda-runtime`, mirroring how
   a harness tracks its spawned subagents without the subagents
   knowing about each other.
-- **Rialto's own `AgentSession` execution** (reuses
-  `agent-runtime`'s `AgentSession`/`executeTool` as-is, in-process
-  inside Rialto) — the actual chat/tool-execution loop, using the
-  substrate received from `coda-runtime`'s join response. This is
-  where `Provider`/`modelOverride` (Track A's second requirement)
-  actually gets exercised.
+- **`pi`'s own agent loop** (`packages/agent/src/agent.ts` +
+  `agent-loop.ts`, used as-is, unmodified — inherited whole from the
+  fork) — the actual chat/tool-execution loop, fed the substrate
+  received from `coda-runtime`'s join response. This is where `pi`'s
+  own provider/model-override mechanism (Track A's second requirement)
+  actually gets exercised — not ANIMA's `Provider` interface.
 
 ## Data Model
 
@@ -140,13 +149,11 @@ Soffio behavior to migrate.
    `JoinCodaInput`'s documented fields) has undocumented conventions
    Rialto should match, but this no longer blocks the architecture
    decision.
-3. **New**: does `agent-runtime`'s `AgentSession`/tool-executor
-   (`src/agents/session.ts`, `src/tools/executor.ts`) run correctly
-   when instantiated from a separate process (Soffio/Rialto) against
-   a substrate obtained via `coda-runtime`'s join response, or does it
-   assume it's always running inside ANIMA's own `server.ts`/`cli.ts`
-   process (e.g. relative paths, shared config, `~/.anima/` layout
-   assumptions)? This needs one more read of `AgentSession`'s
-   constructor/`RunAgentSessionOptions` against what a join response
-   actually returns (`CodaJoinResponse`'s `projection`/
-   `declaredSubstrateScopes` etc.) before task-level planning.
+3. ~~Does `agent-runtime`'s `AgentSession` run correctly outside
+   ANIMA's own process~~ — moot, corrected above: Rialto never
+   instantiates ANIMA's `AgentSession` at all. **New question in its
+   place**: what shape does `CodaJoinResponse`'s `projection` need to
+   be transformed into before it can seed `pi`'s own agent loop (system
+   prompt? initial context messages? something else)? Needs one read
+   of how `pi`'s `agent.ts`/`agent-loop.ts` accepts its initial
+   system/context input before task-level planning.
