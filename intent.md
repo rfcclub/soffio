@@ -8,10 +8,35 @@ model backs an agent — Claude, Kimi, DeepSeek, Gemini, ...) is the soul.
 Soffio is what connects the two and keeps it alive across substrate
 changes.
 
-**Rialto** — the orchestrator/hub component inside Soffio (named after
+**Rialto** — the orchestrator component *inside* Soffio (named after
 Venice's original center, "Rivoalto" — the hub the city grew from).
-Ties into ANIMA's existing Venice loop engineering naming
-(`documents/GARDEN_PROPOSAL.md`) and `src/garden/hub.ts` (GardenHub).
+Rialto is to Soffio what Garden Hub is to ANIMA's colony: the local
+routing/visibility/coordination layer for whatever Soffio has spawned
+— not a competing hub, a client/participant of the real one (Track B:
+Rialto speaks `colony-mesh`, the same bus Garden Hub's own agents use).
+
+**Correction, thoor 2026-08-13: "Venice Hub" is not a real system —
+don't use that name.** `documents/GARDEN_PROPOSAL.md` deliberately
+keeps two things separate that this doc's earlier drafts blurred
+together under that invented name:
+- **Garden Hub** (`src/garden/hub.ts`, `GardenHub`) — the colony
+  control plane: which agents/runtime instances exist, tasks,
+  blockers, events, memory proposals, routing. Real code, real API
+  surface (`WorkTask`, `TickEngine`).
+- **Venice loop engineering** (`castle-loop-engineering` spec, same
+  doc) — the evidence/verification *discipline*, not a service with
+  an API: mechanical rubric pass/fail, streaks, blank-arm holdout
+  tests, human-gated hill-climbing. Soffio's self-responsibility gate
+  (pillar 2 below) must satisfy this discipline's standard — Rialto
+  doesn't "connect to" Venice loop engineering the way it connects to
+  Garden Hub via colony-mesh; there's nothing to connect to. It's a
+  bar the gate's evidence has to clear.
+
+GARDEN_PROPOSAL.md's own words: "These are related, but they are not
+the same system." Rialto's job touches both — participates in Garden
+Hub via colony-mesh (Track B), and its gate (Track C) implements
+Venice loop engineering's verification standard — but conflating them
+into one "Venice Hub" was this doc's own error, now fixed.
 
 ## Problem
 
@@ -138,13 +163,17 @@ identity across a substrate swap.
 **Explicitly not adopting their dependency shape.** Their split is
 identity-state-in-their-cloud / harness-runs-anywhere. Ours has to be
 identity-state-in-our-own-stack — `aria-entity` (the memory/graph
-substrate), ANIMA's `src/continuity/reflection-engine.ts`, and Venice
-Hub — / harness-runs-anywhere. Everything colony-facing we've built
-so far (ANIMA, aria-entity, agent-runtime, Venice Hub) is homemade on
-purpose; taking on Letta Cloud as the identity store would trade that
-independence for a vendor dependency in the one layer (identity
-persistence) that most needs to stay ours. Borrow the *pattern*
-(git-trackable state, environment-agnostic harness), not the
+substrate), ANIMA's `src/continuity/reflection-engine.ts`, Garden Hub
+(`src/garden/hub.ts` — the colony control plane), and Venice loop
+engineering (the evidence/verification discipline,
+`documents/GARDEN_PROPOSAL.md` — deliberately a *separate* system from
+Garden Hub, not one merged "Venice Hub"; see the correction note below
+Pillar 3 in Outcome) — / harness-runs-anywhere. Everything colony-facing
+we've built so far (ANIMA, aria-entity, agent-runtime, Garden Hub) is
+homemade on purpose; taking on Letta Cloud as the identity store would
+trade that independence for a vendor dependency in the one layer
+(identity persistence) that most needs to stay ours. Borrow the
+*pattern* (git-trackable state, environment-agnostic harness), not the
 *infrastructure*.
 
 ## Tools-as-weapons, Not Foundations
