@@ -52,12 +52,31 @@ its Soffio process is running.
    swaps happen entirely inside `pi`'s own provider layer — no new
    API needed there either.
 
-2. **Prove it, don't just say it.** No "done" claim survives without
-   evidence — a real test run, real output, matching Venice loop
-   engineering's discipline (mechanical verification, streak loops,
-   blank-arm holdouts). The execution sandbox can lean on an existing
-   pattern (catcode's microVM backend, or Docker Sandboxes as a named
-   future option) rather than being hand-rolled from scratch.
+2. **Prove it, don't just say it — by wiring in `seal-gate`, not
+   building a new gate.** thoor, 2026-08-13: we already have
+   `loomkit`/`seal-gate`/`hammerhead-debug`/`pilotfish` as a real,
+   running foundation — pillar 2 shouldn't reinvent what they already
+   do. Mapped onto Martin Fowler's harness-engineering vocabulary
+   (`research/ai-agent-digest-2026-08-10.md`'s companion read,
+   2026-08-13): `seal-gate` already IS the sensor layer — computational
+   (deterministic PASS/REVISE/BLOCK) with an optional inferential mode
+   (`--llm`), exactly the "cheap/fast by default, expensive/judgment
+   layer optional" split the article argues for. Soffio's identity, on
+   a "done" claim, calls `seal-gate` the same way this very session's
+   Claude Code hooks already do — not a new gate, a wiring task.
+   `loomkit` is the guides layer (spec/plan as checked-in artifacts,
+   matching the OpenAI Codex team's "AGENTS.md as table of contents,
+   not encyclopedia" lesson from the same read) — an identity doing
+   real work under Soffio should follow `loomkit`'s workflow, not
+   invent its own task tracking. `hammerhead-debug` is what the
+   identity reaches for when a test won't go green (hypothesis-gated,
+   no fix without a confirmed observation). `pilotfish` is available
+   if driving the identity through `plan.json` tasks with retry is
+   useful for a given workflow. All four stay "tools-as-weapons" per
+   the section below — called into, not forked into Soffio's own code.
+   The execution sandbox itself can still lean on an existing pattern
+   (catcode's microVM backend, or Docker Sandboxes as a named future
+   option) rather than being hand-rolled.
 
 3. **Speak `colony-mesh`, don't invent a protocol.** For the one agent
    it's running, Soffio registers as a real `colony-mesh` participant
@@ -115,6 +134,10 @@ review notes: [`research/harness-comparison-2026-08-09.md`](./research/harness-c
   see [`research/ai-agent-digest-2026-08-10.md`](./research/ai-agent-digest-2026-08-10.md))
   are candidates to run *against* Soffio later, never a dependency
   Soffio is built on.
+- Not reinventing `loomkit`/`seal-gate`/`hammerhead-debug`/`pilotfish`
+  — see pillar 2 above. These are called into as running tools (same
+  "tools-as-weapons" relationship as Claude Code/Codex/Reasonix), not
+  forked into or duplicated by Soffio's own code.
 
 ## Current Status (2026-08-13)
 
