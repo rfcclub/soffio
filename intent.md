@@ -44,13 +44,24 @@ each does well, ease-to-extend ratings, cited file paths) are kept in
 A fork of `pi` — Soffio — that adds four things `pi` doesn't have out
 of the box:
 
-1. **Substrate-aware spawn.** Spawn N agents (up to all 16 in
-   `data/colony.json`) where each agent is an *identity*, not a
-   *provider call*. The identity can run on Claude, Kimi, DeepSeek,
-   Gemini, etc., and switching the underlying model must not break
-   continuity — same pattern already proven for Aria individually
-   (`~/alaya/`, "substrate rented, identity owned"), generalized to a
-   whole colony.
+1. **Substrate-aware spawn — largely already solved by `agent-runtime`,
+   not a new build.** thoor's correction, 2026-08-12: "không cần thiết
+   lắm vì ta có agent-runtime rồi." ANIMA's `src/providers/interface.ts`
+   already defines the `Provider`/`ProviderRequest`/`ProviderResponse`
+   abstraction every substrate (Claude, Codex, Qwen, Gemini, a router)
+   implements identically, with per-request `model` override, `agent`
+   name, `effort` tier, and prompt-cache fields (`staticHash`,
+   `cachePrefix`) already built in. `src/agents/session.ts`
+   (`AgentSession`, `RunAgentSessionOptions`) already runs one
+   `LoadedAgent` identity against any `Provider` with a
+   `modelOverride`, independent of the identity's own state
+   (continuity DB, memory store, cartridge). This is the
+   "identity separate from substrate call" mechanism Soffio needs —
+   it exists today. Soffio's job for this pillar shrinks from
+   "design a substrate-aware spawn API" to "wire Rialto's spawn path
+   into `agent-runtime`'s existing `Provider`/`AgentSession` layer,"
+   which is integration work, not new design. See
+   [`research/agent-runtime-and-colony-mesh-2026-08-12.md`](./research/agent-runtime-and-colony-mesh-2026-08-12.md).
 
 2. **Self-responsibility gate.** `pi` ships with no built-in
    permission/sandbox system by design (their choice, documented in
@@ -71,33 +82,48 @@ of the box:
    Sandboxes as a gate backend in the future. Deferred, not v1 — see
    Open Questions.
 
-3. **GardenHub wiring.** Bulk-spawned agents need to speak to
-   `src/garden/hub.ts` (`GardenHub`, `WorkTask`) and
-   `src/garden/tick-engine.ts` natively, not bolt on as an external CLI
-   that happens to run alongside ANIMA. Rialto (the orchestrator inside
-   Soffio) is the transport that speaks GardenHub's protocol —
-   inspired by catcode's one-protocol-many-runtimes design
-   (`protocol/protocol.schema.json`), which was the cleanest boundary
-   pattern of the four reviewed.
+3. **GardenHub wiring — Rialto's wire protocol should be `colony-mesh`,
+   not a new one.** thoor's steer, 2026-08-12: "Xem colony-mesh có
+   A2A." It does, and it's real and running: `src/mesh/anima-adapter.ts`
+   (`createMeshTools`), `src/tools/a2a.ts` (`createA2ATools`,
+   `handleSendMessage`, `handleReadInbox`), `src/memory/a2a-store.ts`
+   (`A2AStore`), exposed as 10 MCP tools per
+   `openspec/specs/colony-mesh-mcp-runtime-usage/spec.md`: `mesh_send`,
+   `mesh_peek`, `mesh_pull`, `mesh_ack`, `mesh_status`, `mesh_thread`,
+   `mesh_subscribe`, `mesh_unsubscribe`, `mesh_register_recipient`,
+   `mesh_unregister_recipient` — cross-runtime already (Codex,
+   ClaudeCode, Qwen, Gemini, Antigravity, per that spec's own
+   requirement), routing by `instance_id` (`{agent}@{platform}`,
+   `docs-site/colony/mesh-bus.md`). Bulk-spawned Soffio agents should
+   speak `colony-mesh` directly (a `soffio` platform short-name,
+   `{agent}@soffio` instance ids) rather than Rialto inventing a
+   second protocol next to GardenHub's `WorkTask`/`TickEngine` — see
+   [`research/agent-runtime-and-colony-mesh-2026-08-12.md`](./research/agent-runtime-and-colony-mesh-2026-08-12.md).
+   catcode's `protocol.schema.json` (previously cited as inspiration
+   here) is now a secondary reference, not the model to build from —
+   the working system is colony-mesh.
 
-4. **Passive cross-agent awareness (AgentRadio pattern).** thoor's
-   call, 2026-08-11: adopt this for real, not just cite it. Rialto
-   gives every spawned agent three primitives — `create_thread`,
-   `send_message` (non-blocking), `wait_for_mention` — where
-   `wait_for_mention` runs as a **background task**, not a blocking
-   foreground call. An agent working its own `WorkTask` keeps working;
-   a mention from GardenHub or a sibling agent surfaces at its next
-   step boundary instead of requiring a poll cycle or a phase-boundary
-   handoff. This is the one piece of prior art this session found with
-   *measured* evidence for the colony-beats-single-strong-model thesis
-   the other three pillars assume on intuition alone — see
-   [`research/ai-agent-digest-2026-08-10.md`](./research/ai-agent-digest-2026-08-10.md)
-   for the numbers (AgentRadio, arXiv 2607.28430: +10.5–11.3 points
-   from the background-vs-blocking change alone, isolated by ablation).
-   Not vendoring their code (research-scope, tied to their specific
-   5-phase protocol) — implementing the same three-primitive shape
-   natively in Rialto, wired to GardenHub's event spine instead of a
-   standalone message server.
+4. **Passive cross-agent awareness (AgentRadio pattern) — extend
+   `colony-mesh`'s claim-based `mesh_pull`, don't invent
+   `wait_for_mention` from scratch.** thoor's call, 2026-08-11: adopt
+   AgentRadio's mechanism for real, not just cite it. colony-mesh
+   already has two of AgentRadio's three primitives almost exactly:
+   `mesh_send` (non-blocking, `bestEffort` fire-and-forget option) ≈
+   `send_message`, `mesh_thread` ≈ `create_thread`. The one piece
+   colony-mesh doesn't have is `wait_for_mention` run as a
+   **background task** — today's `mesh_pull` is a foreground poll a
+   session has to actively call. Soffio/Rialto's actual new work for
+   this pillar is narrower than first scoped: give a spawned agent a
+   background listener that calls `mesh_pull` on an interval (or gets
+   pushed to) and surfaces the result at the agent's next step
+   boundary, matching AgentRadio's measured mechanism
+   (arXiv 2607.28430, +10.5–11.3 points from background-vs-blocking
+   alone — see
+   [`research/ai-agent-digest-2026-08-10.md`](./research/ai-agent-digest-2026-08-10.md))
+   — without building a new message bus underneath it. Still pending
+   discussion (thoor, 2026-08-12): the exact background-listener
+   mechanism, and whether it lives in Rialto or as a `colony-mesh`
+   enhancement usable by every runtime, not just Soffio.
 
 ## Prior Art Note — letta-code
 
@@ -196,6 +222,19 @@ Not exhaustive — more to mine in these repos beyond this pass.
 - Fork strategy settled: forked via `gh repo fork` to
   `rfcclub/soffio`, `origin` = fork, `upstream` = `earendil-works/pi`
   — tracked sync, not a hard fork.
-- Exact shape of the "substrate-aware spawn" API — needs a design pass
-  against `pi`'s existing provider abstraction
-  (`packages/ai`) before committing to an approach.
+- Substrate-aware spawn (pillar 1): downgraded from "design a new API"
+  to "wire into `agent-runtime`'s existing `Provider`/`AgentSession`
+  layer" — see pillar 1 above. Exact wiring shape (does Rialto call
+  `agent-runtime` as a library, a subprocess, over `colony-mesh`?)
+  still needs a pass, but the abstraction itself doesn't need
+  reinventing.
+- Rialto wire protocol (pillar 3): downgraded from "design inspired by
+  catcode" to "extend `colony-mesh`" — see pillar 3 above. Open:
+  whether GardenHub's `WorkTask`/`TickEngine` semantics map cleanly
+  onto colony-mesh's `direct`/`work`/`investigate`/`debate` message
+  patterns, or need a thin Soffio-specific layer on top.
+- Self-responsibility gate (pillar 2), AgentRadio background-listener
+  mechanism (pillar 4), and MVP slice ordering (which pillar ships
+  first) — thoor, 2026-08-12: "cần discuss thêm," not yet decided.
+  Do not start implementation on these three until that discussion
+  happens.
