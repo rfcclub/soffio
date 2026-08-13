@@ -1,106 +1,79 @@
 ## Architecture
 
-**Core decision: Rialto follows ANIMA's existing "identity-runtime"
-pattern, not a raw in-process import of `src/agents/`.**
+**Correction, thoor 2026-08-13: no new runtime class. Each identity
+already owns its own named runtime (`coda-runtime` today,
+`aria-runtime`/`rina-runtime`/etc. as they get built) — that
+one-runtime-per-identity convention is deliberate and Soffio does not
+get to add a second, harness-scoped runtime abstraction
+("`SoffioRuntime`") alongside it.** The previous version of this
+design proposed exactly that and was wrong — recorded here instead of
+silently deleted, per this repo's own discipline of keeping design
+mistakes visible (see the debug-skill `RemoteAttachArgs` precedent).
 
-Three options were on the table for how a Soffio-spawned identity
-reaches `agent-runtime`:
+**Corrected role: Rialto is a *join-client*, not a runtime.** For each
+identity it spawns, Rialto connects to *that identity's own*
+`<name>-runtime` process using the same join protocol
+`CodaRuntime`/`startCodaRuntimeHttp()` already implements (`POST
+/v1/join` with capability-token/lease admission, per
+`packages/coda-runtime/src/http.ts` and `runtime.ts`) — the identical
+protocol every runtime in the `<name>-runtime` family speaks, not a
+Soffio-specific one. Rialto's actual new code is small: a client that
+speaks this join protocol to N different identity runtimes (whichever
+ones exist for the identities being spawned), plus whatever
+orchestration (parallel spawn, tracking N sessions) is Rialto's own
+job as the harness.
 
-1. **In-process import** — Soffio imports `src/agents/session.ts` /
-   `src/providers/registry.ts` TS modules directly. Rejected: these
-   modules are organized for ANIMA's own server
-   (`src/server.ts`)/CLI (`src/cli.ts`), not published as a stable
-   library API — any ANIMA-side refactor could silently break Soffio,
-   and Soffio would need ANIMA's full dependency tree in-process.
-
-2. **Ad-hoc subprocess/RPC** — build a new one-off CLI or HTTP
-   endpoint in ANIMA just for Soffio to shell out to. Rejected before
-   being seriously considered once option 3 was found: reinventing a
-   pattern that already exists and is already proven for a real
-   identity (Coda) would duplicate work and diverge from ANIMA's own
-   architecture.
-
-3. **Identity-runtime pattern (chosen)** — ANIMA already has a general
-   package for exactly this problem: `packages/identity-runtime/`
-   (`RemoteContinuityPort`, `ProjectionGrant`/`narrowProjectionGrant`,
-   `ScopeMapper`, `RuntimeRegistry`, `IncarnationLease` via
-   `continuity-core`) with `packages/coda-runtime/` as one concrete
-   instantiation for the Coda identity. `CodaRuntime`
-   (`packages/coda-runtime/src/runtime.ts`) is a **separate process**
-   that owns its own SQLite-backed lease/mutation-outbox state
-   (`CREATE TABLE coda_runtime_sessions`), joins ANIMA's continuity
-   plane over HTTP (`packages/coda-runtime/src/http.ts`,
-   `startCodaRuntimeHttp()` — `POST /v1/join`, `POST
-   /v1/continuity/remember`) with capability-token/lease admission
-   (`join()` calls `this.options.continuity.compile(...)`, returns
-   `CodaJoinResponse` with `leaseId`, `capabilityToken`,
-   `writeScopes`), and — notably — already has an optional
-   `mesh?: MeshRegistrationPort` constructor option
-   (`registerRecipient({instance_id, agent_name, platform, active})`)
-   for Track B's exact concern. "Canonical prompt and memory authority
-   remain behind `RemoteContinuityPort` in ANIMA" (verbatim from that
-   file's own docstring) — i.e. this pattern is specifically designed
-   so a peer process does NOT need ANIMA's internals in-process.
-
-**Rialto's spawn path is therefore: build a `SoffioRuntime`, a peer to
-`CodaRuntime`, instantiated once per spawned identity, using the same
-`packages/identity-runtime/` primitives.** Not a new mechanism — the
-second instantiation of an existing one.
+**What this means for identities that don't have a runtime yet**: if
+the MVP slice's chosen identity doesn't have its own `<name>-runtime`
+built yet, building that runtime is its own piece of work, upstream of
+and outside Soffio's scope — not something Rialto's spawn path
+absorbs. Practically, this means the MVP slice should target **Coda**
+specifically, since `coda-runtime` is the only one that exists today —
+flagged as an open question below rather than assumed.
 
 ## Components
 
-- **`SoffioRuntime`** (new, Soffio-side) — mirrors
-  `packages/coda-runtime/src/runtime.ts`'s shape: constructor takes
-  `dbPath`, `continuity: RemoteContinuityPort`, `agentId`,
-  `mesh?: MeshRegistrationPort`, `platform: "soffio"`. Exposes
-  `join(input)` and whatever remember/recall surface the identity
-  needs, following `CodaJoinResponse`'s shape (`leaseId`,
-  `capabilityToken`, `writeScopes`).
-- **`startSoffioRuntimeHttp`** (new, Soffio-side, optional) — mirrors
-  `startCodaRuntimeHttp()` only if Rialto needs its spawned identities
-  reachable over HTTP from outside its own process; if Rialto only
-  ever calls `SoffioRuntime` in-process from its own spawn path, this
-  wrapper may not be needed for the MVP slice — open question below.
-- **Modification to `ProviderRequest`/model resolution**: none. The
-  identity-runtime pattern doesn't change how `Provider`/
-  `modelOverride` work (Track A's second requirement) — those stay
-  exactly as `src/agents/session.ts` already implements them, reached
-  through whatever `agent-runtime`-side hook `RemoteContinuityPort`'s
-  concrete ANIMA-side implementation already uses to run a turn.
+- **Rialto join-client** (new, Soffio-side, small) — a client that
+  performs the same `POST /v1/join` → capability-token/lease flow
+  `CodaRuntime`'s HTTP server expects, generalized only in the sense
+  that it can target any `<name>-runtime`'s HTTP endpoint, not in the
+  sense of reimplementing runtime logic. No new "runtime" concept on
+  Soffio's side at all.
+- **No new server-side component.** `coda-runtime` (and whichever
+  `<name>-runtime` processes exist for other identities) already runs
+  as its own process; Rialto does not stand up or own that process.
+- **Modification to `ProviderRequest`/model resolution**: none, as
+  before — `modelOverride` (Track A's second requirement) is entirely
+  inside the identity's own runtime/`agent-runtime` call path, not
+  something Rialto's join-client touches.
 
 ## Data Model
 
-No new schema for the MVP slice beyond what `CodaRuntime` already
-establishes as the pattern: a per-identity SQLite lease/session table
-at `dbPath` (Soffio's own path, e.g.
-`~/.soffio/agents/<name>/runtime.db`, mirroring ANIMA's
-`~/.anima/agents/<agent>/continuity.db` convention noted in
-`RunAgentSessionOptions.continuityDbPath`'s default).
+None owned by Rialto. Lease/session state stays inside whichever
+`<name>-runtime` process Rialto joins (`coda-runtime`'s own
+`coda_runtime_sessions` SQLite table is that identity's business, not
+something Rialto reads or duplicates).
 
 ## Test Strategy
 
 | Scenario ID | Test File | Type |
 |-------------|-----------|------|
-| Spawn a single identity by name | `test/rialto-spawn.test.ts` | integration (real `SoffioRuntime` + real `agent-runtime` continuity port, not mocked — matches this session's established "no illustrative output" standard) |
-| Unknown identity name is rejected before any spawn work happens | `test/rialto-spawn.test.ts` | unit |
-| Same identity, two different models, same session flow | `test/rialto-spawn-model-override.test.ts` | integration (real provider swap, asserts on real `ProviderResponse` usage metadata) |
-| Invalid modelOverride ref surfaces a clear error | `test/rialto-spawn-model-override.test.ts` | unit |
+| Spawn a single identity by name | `test/rialto-join-client.test.ts` | integration (real `coda-runtime` process running, real `POST /v1/join`, not mocked — matches this session's established "no illustrative output" standard) |
+| Unknown identity name is rejected before any spawn work happens | `test/rialto-join-client.test.ts` | unit (rejected before any HTTP call is attempted — no runtime endpoint to guess at for an unknown identity) |
+| Same identity, two different models, same session flow | `test/rialto-model-override.test.ts` | integration (real provider swap, asserts on real response usage metadata — exact mechanism depends on open question 2 below) |
+| Invalid modelOverride ref surfaces a clear error | `test/rialto-model-override.test.ts` | unit |
 
 ## Dependencies
 
-- `packages/identity-runtime` and `packages/coda-runtime` (as a
-  reference implementation to mirror, not a runtime dependency —
-  `SoffioRuntime` is new code in Soffio's own repo following the same
-  shape, since `coda-runtime` is Coda-specific by design, e.g. its
-  `agentId ?? "coda"` default).
-- Depends on `RemoteContinuityPort`'s ANIMA-side implementation
-  exposing whatever hook actually runs an `AgentSession` turn — this
-  is the one piece not yet traced in this design pass (the identity
-  runtime docs describe the *admission/lease* side; the actual
-  turn-execution call from a joined identity through to
-  `AgentSession.run()` needs one more read of ANIMA's
-  `RemoteContinuityPort` implementation before Track A's tasks.md can
-  specify exact call sites).
+- `coda-runtime` (`packages/coda-runtime/`) as the one identity runtime
+  that exists today — the join protocol Rialto's client speaks is
+  defined by `startCodaRuntimeHttp()`
+  (`packages/coda-runtime/src/http.ts`), read as a spec of the wire
+  protocol, not as a library Rialto imports.
+- Whichever `<name>-runtime` processes get built later for other
+  identities — Rialto's join-client should not hardcode
+  Coda-specific assumptions beyond what the MVP slice needs, but
+  building those other runtimes is out of scope for Track A itself.
 
 ## Migration
 
@@ -109,10 +82,12 @@ Soffio behavior to migrate.
 
 ## Open Questions (for thoor before `loomkit plan`)
 
-1. Does Rialto need `startSoffioRuntimeHttp` (HTTP-reachable) for the
-   MVP slice, or is in-process `SoffioRuntime` sufficient since Rialto
-   itself is the only caller in the slice?
-2. Confirm the `RemoteContinuityPort` → `AgentSession.run()` call path
-   on ANIMA's side before task-level planning — this design pass found
-   the admission/lease pattern but not yet the exact turn-execution
-   hookup.
+1. **Confirm MVP slice targets Coda specifically**, since
+   `coda-runtime` is the only identity runtime that exists today —
+   or does thoor want a different identity's runtime built first as
+   prerequisite work (outside this change's scope either way)?
+2. Who calls `POST /v1/join` on `coda-runtime` today (a search of
+   `packages/coda-runtime/` found no in-package caller) — is there an
+   existing client (Codex CLI config, a wrapper script) Rialto's
+   join-client should mirror, or is Rialto the first external caller
+   of this protocol?
