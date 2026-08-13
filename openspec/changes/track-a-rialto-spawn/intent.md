@@ -124,6 +124,10 @@ payload needs to be in before it can seed `pi`'s loop).
 
 ## Spec Seeds
 
+- `soffio` requires `--agent <name>`; without it, prints help and
+  exits before any join/run work (thoor, 2026-08-13, grounded in
+  `pi`'s existing `parseArgs`/`printHelp` in
+  `packages/coding-agent/src/cli/args.ts`).
 - Rialto joins a named identity's runtime and obtains its substrate.
 - `pi`'s agent loop runs a real turn using that substrate.
 - Model-override switches the provider mid-flow via `pi`'s own
