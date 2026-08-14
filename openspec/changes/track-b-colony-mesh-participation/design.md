@@ -1,104 +1,120 @@
 ## Architecture
 
-**Correction, thoor 2026-08-13 (see Track A's design.md): no
-`SoffioRuntime` — Rialto is a join-client of each identity's own
-`<name>-runtime`, not a runtime itself.** This changes where mesh
-registration lives: `packages/coda-runtime/src/runtime.ts`'s
-`CodaRuntimeOptions.mesh?: MeshRegistrationPort` is a hook inside
-`coda-runtime` *itself* — mesh registration for a Coda-spawned-via-
-Rialto identity is `coda-runtime`'s own concern when it's configured
-with `platform: "soffio"`, not something Rialto's join-client
-performs on the identity's behalf from outside. Track B's scope
-narrows to:
+**Corrected, thoor 2026-08-14: mesh registration is already automatic
+inside `coda-runtime`'s `join()` — not something Rialto or Track B
+implements.** Live spec, read directly (not archived, current source
+of truth): `openspec/specs/coda-runtime-mesh-registration/spec.md`
+(`anima` repo).
 
-1. Constructing a `MeshRegistrationPort` implementation that calls the
-   real `colony-mesh` MCP tools (`mesh_register_recipient`, and the
-   send/pull/ack/thread tools beyond registration).
-2. Passing `platform: "soffio"` and instance ids of the shape
-   `"<name>@soffio"` — confirmed free-form at the store layer (no
-   ANIMA-side enum to extend; `src/mesh/anima-adapter.ts` hardcodes
-   its own `platform: "anima"` per-adapter, `to_platform` is cast as
-   `string` with no validation).
-3. A `WorkTaskThread` helper: creates/uses a `mesh_thread` per
-   `WorkTask` id, per the spec's D0 decision that `WorkTask` state
-   stays in `GardenHub` and the mesh thread only carries chatter/
-   evidence.
+- `join()` calls an injected `MeshRegistrationPort.registerRecipient()`
+  on **every** successful join, unconditionally — no "first join"
+  branch, no separate registration step for a caller to remember to
+  perform.
+- `instance_id` derives deterministically from `slugifyInstanceId(agentId,
+  surfaceId)` — pure function, no persisted "have I registered before"
+  state. **Not `platform`** — the earlier design (pre-2026-08-14) was
+  wrong to route this through a `platform: "soffio"` field; the real
+  mechanism keys on `surfaceId`, which `JoinCodaInput` already accepts
+  as a caller-supplied field.
+- Two joins with different `surfaceId` values (same `agentId`) get two
+  independently addressable mesh recipients (spec's SC-010) — this is
+  exactly what Rialto needs: join as `(agentId: "coda", surfaceId:
+  "soffio")` or similar, and the resulting instance is automatically,
+  distinctly addressable on `colony-mesh` — no extra code.
+- Mesh registration failure never fails `join()` (SC-006) — Rialto
+  doesn't need its own error-handling path for this either.
+
+**Also corrected: `colony-mesh` already has a real push/wakeup layer,
+not poll-only.** Archived spec (shipped, not aspirational):
+`openspec/archive/colony-mesh-realtime-pubsub-*/specs/mesh-realtime-pubsub/spec.md`.
+Publish persists to SQLite first, then emits a wakeup to any
+registered listeners — multiple simultaneous listeners supported,
+direct/broadcast/topic routing, listener expiry, wakeup-emission
+failure never fails publish. SQLite stays authoritative; a wakeup is a
+hint to read, not the delivery itself.
+
+**What Track B actually still needs to do**, given both of the above
+are already built:
+
+1. Verify (not implement) that a Rialto-initiated join gets a working,
+   independently-addressable mesh identity for free.
+2. Verify send/pull/ack works for that identity against the real
+   running mesh.
+3. Register a listener for the existing wakeup layer and surface
+   wakeups to `pi`'s agent loop at its next step boundary (this is
+   pillar 4's real remaining work — a listener registration + a
+   surfacing point, not a poll loop or a new push mechanism).
+4. The `WorkTask`-thread-for-chatter piece (D0's decision, `GardenHub`
+   stays the state authority) is unaffected by this correction — still
+   real work, still Track B's own.
 
 ## Components
 
-- **`SoffioMeshAdapter`** (new, scope now uncertain post-correction —
-  see below) — thin wrappers for `mesh_send`/`mesh_pull`/`mesh_ack`/
-  `mesh_thread`, calling the existing `colony-mesh` MCP server exactly
-  as `anima-adapter.ts`'s `createMeshTools()` does for ANIMA's own
-  runtime. This part still holds regardless of the Track A correction
-  — Rialto (or whatever process ends up owning WorkTask-thread
-  chatter) needs *some* client for `mesh_send`/`mesh_pull`/
-  `mesh_thread`, independent of registration.
+- **No new mesh adapter to build for registration** — `coda-runtime`'s
+  `join()` already does this. Track B's join call (via Track A) just
+  needs to pass a `surfaceId` that yields a sensible, distinct
+  instance_id (e.g. `"soffio"`, or `"soffio-<host>"` if per-machine
+  addressability matters later).
+- **Thin mesh client** (still needed) — wrappers for `mesh_send`/
+  `mesh_pull`/`mesh_ack`/`mesh_thread`, calling the existing
+  `colony-mesh` MCP server, for whatever process ends up posting
+  `WorkTask` chatter (Rialto, using the identity obtained via Track A).
+- **Wakeup listener registration** (still needed, narrower than
+  before) — register with the existing wakeup layer for the joined
+  identity's `instance_id`; on wakeup, read the real delivery via
+  `pull`/`peek` (per the wakeup spec's own non-authoritative-hint
+  contract) and surface it to `pi`'s agent loop.
+- **`WorkTaskThread` helper** (still needed) — creates/uses a
+  `mesh_thread` per `WorkTask` id; `WorkTask` state itself stays in
+  `GardenHub`, unchanged from the original D0 decision.
 - **No new server, no new store.** `A2AStore`
   (`src/memory/a2a-store.ts`) and the MCP tool surface
-  (`src/tools/a2a.ts`) are used as-is. Still true.
-- **`MeshRegistrationPort` wiring — open, not designed yet.** The
-  original plan routed this through a `SoffioRuntime` constructor
-  option that no longer exists (Track A's correction). `coda-runtime`
-  registers its OWN `platform`/`mesh` config
-  (`CodaRuntimeOptions.mesh`, `CodaRuntimeOptions.platform` per
-  `runtime.ts`) — meaning for a Coda identity joined through Rialto,
-  whether it registers as `platform: "soffio"` on colony-mesh is
-  determined by however `coda-runtime` itself is configured/launched,
-  not by Rialto's join call. `JoinCodaInput`
-  (`clientId, surfaceId, message, cartridgeOverride, hostContext`) has
-  no field for a caller to signal "register me under a different
-  platform." This is now a real open question, not a solved piece of
-  the design — see Open Questions.
+  (`src/tools/a2a.ts`) are used as-is — still true, more so now.
 
 ## Data Model
 
-No schema changes. Reuses `colony-mesh`'s existing delivery/thread
-model. The only new "data" is a naming convention:
-`instance_id = "<agent>@soffio"`, `platform = "soffio"`.
+No schema changes. Reuses `colony-mesh`'s existing delivery/thread/
+wakeup model entirely. No new naming convention needed either —
+`instance_id` is whatever `slugifyInstanceId(agentId, surfaceId)`
+produces for the `surfaceId` Rialto's join call passes.
 
 ## Test Strategy
 
 | Scenario ID | Test File | Type |
 |-------------|-----------|------|
-| Soffio-spawned identity registers with a soffio instance id | `test/soffio-mesh-adapter.test.ts` | integration (real MCP server, real `mesh_register_recipient` call) |
-| Message sent to a soffio identity is received and acked | `test/soffio-mesh-roundtrip.test.ts` | integration (real send→pull→ack against the running MCP server, matching the round-trip proof pattern `openspec/specs/colony-mesh-mcp-runtime-usage/spec.md` already requires for the 4 existing runtimes) |
-| A soffio identity sends a message to an existing-runtime agent | `test/soffio-mesh-roundtrip.test.ts` | integration (cross-platform: soffio → anima, asserts `from_platform` on the delivered message) |
+| A Rialto join with a distinct surfaceId yields a distinct, addressable mesh instance | `test/soffio-join-mesh-identity.test.ts` | integration (real `coda-runtime` join, real mesh registration, no mocks — verifies existing behavior, not new code) |
+| Message sent to that instance is received and acked | `test/soffio-mesh-roundtrip.test.ts` | integration (real send→pull→ack against the running MCP server) |
+| A wakeup for that instance surfaces without polling | `test/soffio-mesh-wakeup.test.ts` | integration (real publish, real listener registration, asserts the listener is notified before any manual `pull` call) |
 | WorkTask thread carries evidence, not state transitions | `test/soffio-worktask-thread.test.ts` | integration (real `mesh_thread`/`mesh_send`, asserts `GardenHub`'s `WorkTask` status field is untouched by a mesh post alone) |
 
 ## Dependencies
 
-- The running `colony-mesh` MCP server (already exists, already
-  tested — this change is a client of it, not a builder of it).
-- Track A's corrected architecture (join-client, no `SoffioRuntime`)
-  means Track B's dependency on Track A is now about *whichever
-  process's config* ends up owning `platform: "soffio"` registration
-  — likely `coda-runtime`'s own launch config for the MVP slice's
-  chosen identity, which may mean a Track B task lands in
-  `packages/coda-runtime/` (ANIMA repo) rather than only in Soffio's
-  repo. Confirm this before `loomkit plan`.
+- The running `colony-mesh` MCP server and its wakeup layer (both
+  already exist, already tested — this change is a client of both,
+  builds neither).
+- Track A's join call, which must pass a `surfaceId` — the two changes
+  now meet at exactly one shared decision (what `surfaceId` value to
+  use), not at a registration mechanism to jointly design.
 
 ## Migration
 
-Not applicable — net-new code, and confirmed no ANIMA-side schema/enum
-needs extending for a new platform value.
+Not applicable — no new code beyond thin clients/listeners, and
+confirmed no ANIMA-side schema/enum change needed anywhere.
 
 ## Open Questions (for thoor before `loomkit plan`)
 
-1. Should `openspec/specs/colony-mesh-mcp-runtime-usage/spec.md` (in
-   the `anima` repo) gain a `soffio` runtime section like it has for
-   Codex/ClaudeCode/Qwen/Gemini/Antigravity, or does Soffio being a
-   pure MCP *client* mean no upstream spec change is warranted? Leaning
-   toward "yes, add it" for consistency with that spec's own
-   requirement ("MCP usage is documented for all CLI runtimes"), but
-   not decided.
+1. What `surfaceId` should Rialto's join call use — a fixed literal
+   (`"soffio"`), something host-qualified (`"soffio-<hostname>"`), or
+   something else? Affects whether multiple Soffio processes running
+   the same identity on different machines get distinct or colliding
+   mesh addresses.
 2. Confirm the D0 default from `plan-mvp-slice.md` (mesh thread for
    chatter only, `GardenHub` stays the state authority) is still what
    thoor wants before `mesh_thread`/`WorkTask` wiring gets planned at
    task level.
-3. **New, from Track A's correction**: where does `platform: "soffio"`
-   registration actually happen — inside `coda-runtime`'s own launch
-   config (an ANIMA-repo change), or does the identity-runtime join
-   protocol need a new field so a joining client like Rialto can
-   request a platform override? Not designed yet, needs thoor's input
-   before Track B can be planned at task level.
+3. Should `openspec/specs/colony-mesh-mcp-runtime-usage/spec.md` (in
+   the `anima` repo) gain a documented section for Soffio-originated
+   instances, given they're really just `coda-runtime` joins with a
+   distinct `surfaceId`, not a new "platform"? Lower-stakes now that
+   there's no new registration mechanism to document — may not need
+   its own section at all.

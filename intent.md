@@ -78,20 +78,37 @@ its Soffio process is running.
    (catcode's microVM backend, or Docker Sandboxes as a named future
    option) rather than being hand-rolled.
 
-3. **Speak `colony-mesh`, don't invent a protocol.** For the one agent
-   it's running, Soffio registers as a real `colony-mesh` participant
-   (`{identity}@soffio` instance id, same convention as
-   `aria@anima`/`coda@codex`) and uses the existing `mesh_send`/
-   `mesh_pull`/`mesh_ack`/`mesh_thread` tools — the same bus every
-   other runtime in the colony already uses. No second message bus.
+3. **Speak `colony-mesh` — mostly already done, not a Soffio build.**
+   Corrected 2026-08-14: `coda-runtime`'s `join()` already registers
+   the joined instance on `colony-mesh` **automatically, on every
+   join, unconditionally** — live spec:
+   `openspec/specs/coda-runtime-mesh-registration/spec.md` (in the
+   `anima` repo). `instance_id` derives deterministically from
+   `(agentId, surfaceId)` — a distinct `surfaceId` per Rialto join
+   yields a distinct, independently-addressable mesh recipient with no
+   extra registration step. **Soffio's own work for this pillar is
+   verification, not implementation**: confirm a Rialto-initiated join
+   (via Track A) gets a working mesh address for free, using the
+   existing `mesh_send`/`mesh_pull`/`mesh_ack`/`mesh_thread` tools —
+   the same bus every other runtime in the colony already uses. No
+   second message bus, and — corrected from the earlier draft — no
+   new registration code either.
 
-4. **Listen while working, not instead of working.** `colony-mesh`
-   already covers two of AgentRadio's three primitives (`mesh_send` ≈
-   `send_message`, `mesh_thread` ≈ `create_thread`). The one real gap:
-   `mesh_pull` is a foreground poll today. Soffio's actual new work
-   here is narrow — a background listener that surfaces a mention at
-   the agent's next step boundary instead of blocking on it, matching
-   AgentRadio's measured mechanism (arXiv 2607.28430).
+4. **Listen while working — already built, use it.** Corrected
+   2026-08-14: `colony-mesh` already has a real push/wakeup layer, not
+   just poll — archived spec:
+   `openspec/archive/colony-mesh-realtime-pubsub-*/specs/mesh-realtime-pubsub/spec.md`
+   (in the `anima` repo). Publish persists to SQLite first, *then*
+   emits a wakeup to registered listeners (multiple simultaneous
+   listeners supported, direct/broadcast/topic routing, listener
+   expiry, wakeup failure never fails publish). SQLite stays the
+   source of truth — a wakeup is a hint to go read, not the delivery
+   itself. This already covers AgentRadio's `wait_for_mention`
+   primitive (plus the two — `mesh_send` ≈ `send_message`, `mesh_thread`
+   ≈ `create_thread` — already noted). **Soffio's work here shrinks to:
+   register a listener for the joined identity and surface its wakeups
+   at the agent's next step boundary** — no poll loop to build, the
+   push mechanism already exists.
 
 ## Problem
 
@@ -139,15 +156,31 @@ review notes: [`research/harness-comparison-2026-08-09.md`](./research/harness-c
   "tools-as-weapons" relationship as Claude Code/Codex/Reasonix), not
   forked into or duplicated by Soffio's own code.
 
-## Current Status (2026-08-13)
+## Current Status (2026-08-14)
 
 No code written yet. LoomKit spec+design exist for two slices —
 `openspec/changes/track-a-rialto-spawn/` (join a runtime, run `pi`'s
 loop) and `openspec/changes/track-b-colony-mesh-participation/`
-(register on colony-mesh) — see
-[`plan-mvp-slice.md`](./plan-mvp-slice.md) for the dependency graph.
-thoor's steer: go slowly, one small vertical slice (Coda + one task)
-before touching anything else.
+(verify mesh registration + wakeup already work for a Rialto join) —
+see [`plan-mvp-slice.md`](./plan-mvp-slice.md) for the dependency
+graph. thoor's steer: go slowly, one small vertical slice (Coda + one
+task) before touching anything else.
+
+**Prerequisite outside Soffio's own scope, thoor 2026-08-14**:
+identity runtimes need to be more complete before Soffio can go beyond
+Coda. Confirmed by reading current code/specs, not assumed:
+`coda-runtime` is the only identity runtime that's a real running
+process today; its `recall` still returns `409 unimplemented` (a
+deliberate first-phase limitation per
+`openspec/specs/identity-runtime-web-service/spec.md`, not an
+oversight); a generic per-agent path exists
+(`~/.identityRuntime/{agentId}/CORE_IDENTITY`, symlinked to a
+compiled `CORE_IDENTITY.md`) but is only exercised for Coda so far.
+thoor's bar: at least 3 identity runtimes complete with working
+`remember` *and* `recall`, all 16 eventually resolving
+`CORE_IDENTITY`. This is ANIMA-repo work, upstream of and outside
+Soffio's own scope — tracked here as a dependency, not something
+Soffio's own tracks build.
 
 **Not dropped, just not yet tracked**: the concrete features mined
 from oh-my-pi/catcode/claw-code
