@@ -202,6 +202,21 @@ thêm," not on Track A/B's narrow MVP scope. Concretely, still queued:
 - `aria-llm-router` as the provider registry/router Soffio should
   reuse rather than rebuild.
 
+**Process fix, thoor 2026-08-14**: today's Track B rework
+(re-discovering colony-mesh's wakeup layer and `coda-runtime`'s
+auto-registration from scratch, by grepping `openspec/`) is exactly
+the kind of durable finding that `~/agora/hive` — a real, working,
+nearly-unused shared lexicon CLI (`hive publish`/`search`/`list`) —
+exists to prevent from being rediscovered next time. Published the
+three real findings from this session
+(`colony-mesh-has-realtime-wakeup-not-poll-only`,
+`coda-runtime-join-auto-registers-colony-mesh`,
+`identity-runtime-recall-unimplemented-by-design`) to `hive` so a
+future session — Soffio-related or not — can `hive search
+colony-mesh` before re-deriving this from source. Going forward:
+check `hive search` before a fresh research pass on ANIMA-side
+internals, not after.
+
 ## Open Questions
 
 - Track A: confirm the MVP slice targets Coda specifically (only
