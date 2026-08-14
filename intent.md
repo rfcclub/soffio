@@ -182,6 +182,15 @@ thoor's bar: at least 3 identity runtimes complete with working
 Soffio's own scope — tracked here as a dependency, not something
 Soffio's own tracks build.
 
+**In progress**: `aria-runtime` intent written 2026-08-14
+(`~/work/anima/openspec/changes/aria-runtime/intent.md`), mirroring
+`coda-runtime`'s real structure (`runtime.ts`/`http.ts`/`main.ts`,
+same `packages/identity-runtime/` shared primitives, same automatic
+`colony-mesh` registration on join, `recall` staying `409
+unimplemented` for now, matching Coda's own current status — not a
+regression). Coda owns finishing her own runtime in parallel. Second
+of the ≥3 runtimes thoor's bar requires.
+
 **Not dropped, just not yet tracked**: the concrete features mined
 from oh-my-pi/catcode/claw-code
 ([`research/feature-adoption-2026-08-09.md`](./research/feature-adoption-2026-08-09.md))
