@@ -149,6 +149,26 @@ loop) and `openspec/changes/track-b-colony-mesh-participation/`
 thoor's steer: go slowly, one small vertical slice (Coda + one task)
 before touching anything else.
 
+**Not dropped, just not yet tracked**: the concrete features mined
+from oh-my-pi/catcode/claw-code
+([`research/feature-adoption-2026-08-09.md`](./research/feature-adoption-2026-08-09.md))
+are real and still the plan — they just don't have a LoomKit track
+yet because they land on pillar 2 (self-responsibility gate) and
+parts of pillar 1 (provider config) that are still "cần discuss
+thêm," not on Track A/B's narrow MVP scope. Concretely, still queued:
+- oh-my-pi's `/plan` mode (sandbox-write-guard), `/loop` mode (maps to
+  Venice loop streak cycles), named-role model table, model-cache
+  fingerprint-check pattern.
+- catcode's `/goal` phase state machine + step DAG (closest existing
+  shape to GardenHub `WorkTask` coordination — relevant once Track B
+  needs more than a chatter-only thread), `RoleModels` explicit
+  override, `PROVIDER_PRESETS` pattern.
+- claw-code's `PermissionMode` ordinal-gating primitive (pillar 2), and
+  its disk-flag-only plan-mode bug as a negative lesson (mode toggles
+  must flip in-memory state same-turn, not on next restart).
+- `aria-llm-router` as the provider registry/router Soffio should
+  reuse rather than rebuild.
+
 ## Open Questions
 
 - Track A: confirm the MVP slice targets Coda specifically (only
